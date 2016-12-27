@@ -222,7 +222,7 @@ Err:
     SaveSetting "MyMacro", "BulkReplace", "Isreplaced", False
 End Function
 
-'********************************************************
+
 Private Sub UserForm_Initialize()
 
 '   イニシャライズ時にオプションボタンのクリックイベントが発生するのを避けるためのイベント制御変数
@@ -255,8 +255,6 @@ Private Sub UserForm_Initialize()
     lblSelectColor.Tag = 4
     optUseHighlight.Value = True
 
-    Call SetRightClickMenu
-    Call コントロールプロパティ読込
     Call 置換履歴をテキストボックスに表示する
     
 '   テキストボックスにフォーカス
@@ -326,8 +324,6 @@ End Sub
 Private Sub Replaces(WordLists, doc As Word.Document)
 '   引数：WordList=検索語・置換語,doc=ワード文書
 
-    Dim i As Long
-    Dim sWhatReplace As Variant
     Dim rng As Range
     Set rng = doc.Range(0, 0)
 
@@ -345,7 +341,10 @@ Private Sub Replaces(WordLists, doc As Word.Document)
         If optUseHighlight.Value Then .Replacement.Highlight = True
     End With
 
+    Dim sWhatReplace As Variant
     Dim WhatStr As String, ReplaceStr As String
+    Dim i As Long
+    
     For i = LBound(WordLists) To UBound(WordLists)
         sWhatReplace = VBA.Split(WordLists(i), vbTab)
         WhatStr = sWhatReplace(0)
@@ -423,31 +422,31 @@ Private Function GetWhatReplace() As Variant
 '新規入力ペインと履歴ペインのどちらが選択されているかに応じて条件分岐させる
 'テキストボックスから置換語句を取得して、改行区切りで配列にする
 
+    Dim buf As String
     Dim intPage As Long
     intPage = Mp.Value
-    Dim buf As String
-    Dim List As String
-    Dim Lists As Variant
+    
     'intPage=Mp.Value：新規入力ペイン=0、履歴ペイン=1
     Select Case intPage
-        Case 0: buf = txtReplaceWords.Text
+        Case 0
+            buf = txtReplaceWords.Text
         Case 1
             buf = 履歴の選択を取得
             mUseHistory = True
     End Select
 
+    Dim List As String
     List = RemoveEmptyRows(buf)
     GetWhatReplace = VBA.Split(List, vbCrLf)
 End Function
 
 Private Function 履歴の選択を取得() As String
-    Dim f As Boolean
-    Dim IsAnySelected As Boolean
-    Dim c As Long, i As Long
-    Dim SelItems As String
+    'リストボックスが選択されていなければ終了させる
+    If lbxHistory.ListIndex = 0 Then Exit Function
     
-    If lbxHistory.ListIndex > -1 Then f = True
-    If f = False Then Exit Function
+    Dim SelItems As String
+    Dim IsAnySelected As Boolean
+    Dim i As Long
     For i = 0 To lbxHistory.ListCount - 1
         If lbxHistory.Selected(i) Then
             IsAnySelected = True
@@ -455,9 +454,13 @@ Private Function 履歴の選択を取得() As String
                         vbTab & lbxHistory.List(i, 1) & vbCrLf
         End If
     Next
-    If SelItems = "" Then Exit Function
-    SelItems = Left$(SelItems, Len(SelItems) - 1)
-    履歴の選択を取得 = SelItems
+    
+    If SelItems <> "" Then
+        SelItems = Left$(SelItems, Len(SelItems) - 1)
+        履歴の選択を取得 = SelItems
+    Else
+        Exit Function
+    End If
 End Function
 Private Sub フォーカス制御()
     Dim ind As Long: ind = Mp.Value
@@ -469,7 +472,7 @@ End Sub
 
 Private Function RemoveEmptyRows(targetStr As String)
     'テキストボックスの空行を削除する。
-    '空行があるとバグる。
+    '空行があると置換処理の途中でバグる。
     Dim ret As String
     ret = RegularExpressions.RegexReplace(targetStr, "(\r){1,}$", "")
     ret = RegularExpressions.RegexReplace(targetStr, "(\r\n){1,}$", "")
@@ -578,34 +581,36 @@ Private Sub ワイルドカードとフォント色の設定(rng, HasSet)
 End Sub
 
 Private Sub ReplaceWithEmpty(doc As Word.Document, What As Variant, mHasMatch As Boolean)
-    Dim ret As String
-    Dim targetStr As String
-    Dim Reg As String
+    
     Dim ReplaceStr As String: ReplaceStr = ""
-    Dim sp As Word.Shape
-    Dim rng As Word.Range
-    Dim para As Word.Paragraph
-
+    
     '本文を置換
+    Dim para As Word.Paragraph
+    Dim rng As Word.Range
     For Each para In doc.Paragraphs
         Set rng = para.Range
 '       改行文字を除いた部分を参照する（とても大切）
         rng.MoveEnd unit:=wdCharacter, Count:=-1
         targetStr = rng.Text
         If targetStr = "" Then GoTo NextPara
+        Dim Reg As String
         Reg = What
         If RegularExpressions.RegexTest(targetStr, Reg) Then mHasMatch = True
+        Dim ret As String
         ret = RegularExpressions.RegexReplace(targetStr, Reg, ReplaceStr)
         rng.Text = ret
 NextPara:
     Next para
 
     'テキストボックスを置換
+    Dim sp As Word.Shape
     For Each sp In doc.Shapes
         If sp.Type = msoTextBox Then
             sp.Select
             Selection.Find.ClearFormatting
             Selection.WholeStory
+                
+            Dim targetStr As String
             targetStr = Selection.Text
             If targetStr = "" Then GoTo NextPara2
             Reg = What
@@ -620,9 +625,11 @@ End Sub
 Private Sub 置換辞書に登録(WhatReplace As Variant)
 
     If Not IsArray(WhatReplace) Then Exit Sub
+    
     Dim Lines As Variant
-    Dim v As Variant
     Lines = LoadHistory
+    
+    Dim v As Variant
     v = VBA.Split(Lines, vbCr)
 
     Dim HasContent As Boolean
@@ -654,80 +661,46 @@ Private Sub 置換辞書に登録(WhatReplace As Variant)
     Close #1
 End Sub
 
-Private Sub コントロールプロパティ読込()
-    Dim c As Long: c = 1
-    Dim Properties() As String
-    Dim sProperties As String
-    Dim CtrlCount As Long
-    Dim ctrl As Control
-    Dim v As Variant
-    
-    CtrlCount = Me.Controls.Count
-    ReDim Properties(1 To CtrlCount, 1 To 5) As String
-    
-    For Each ctrl In Controls
-        Properties(c, 1) = ctrl.Name
-        Properties(c, 2) = ctrl.BackColor
-        Properties(c, 3) = ctrl.ForeColor
-        Properties(c, 4) = ctrl.FontName
-        Properties(c, 5) = ctrl.FontSize
-        c = c + 1
-    Next
-    
-    For Each ctrl In Controls
-        sProperties = sProperties & "," & ctrl.Name
-        sProperties = sProperties & "," & ctrl.BackColor
-        sProperties = sProperties & "," & ctrl.ForeColor
-        sProperties = sProperties & "," & ctrl.FontName
-        sProperties = sProperties & "," & ctrl.FontSize & vbCr
-    Next
-
-    Me.Tag = sProperties
-    v = VBA.Split(sProperties, ",")
-End Sub
-
 Private Sub 置換履歴をテキストボックスに表示する()
-    Dim DicWords() As String
-    Dim v As Variant
-    Dim TabSeparatedStr As Variant
-    Dim c As Long: c = 0
-    Dim cnt As Long
-    Dim Lists As Variant, List As Variant
-    Dim i As Long
-    Dim ListsReduced As String
  
     On Error GoTo Err
 Return1:
-    
-    Lists = LoadHistory
-    Lists = VBA.Split(Lists, vbCr)
-    
-    Dim HasSeveralEntries
+'   配列要素を決定するために履歴の項数をしらべる
+    Dim HasMultipleItems
     Select Case UBound(Lists)
-        Case Is > 1: HasSeveralEntries = True
-        Case Is <= 1: HasSeveralEntries = False
+        Case Is > 1: HasMultipleItems = True
+        Case Is <= 1: HasMultipleItems = False
     End Select
     
-    Select Case HasSeveralEntries
+    Dim Lists As Variant
+    Lists = LoadHistory
+    Lists = VBA.Split(Lists, vbCr)
+
+'   最大要素数-1するのは、空要素を削除するため
+    Select Case HasMultipleItems
         Case True
             ReDim Preserve Lists(LBound(Lists) To UBound(Lists) - 1) As String
         Case False
             ReDim Preserve Lists(UBound(Lists) - 1) As String
     End Select
 
-    Dim l As Long
-    Dim Line As String
-    On Error Resume Next ' 検索語と置換後がそろっていないとエラーになる
-    For l = UBound(Lists) To 0 Step -1
+    Dim i As Long
+    Dim List As Variant
+    Dim WhatReplace As String
+    Dim WhatReplaces As String
+    Const DictDelimeter As String = "/"
+    
+    On Error Resume Next ' 検索語と置換語が両方ないとエラーになる
+    For i = UBound(Lists) To 0 Step -1
 '       後に重複を確かめるため、辞書の１行をタブ区切りで二次元配列に分ける
-        List = VBA.Split(Lists(l), "/")
-        Line = List(0) & vbTab & List(1)
-        ListsReduced = ListsReduced & vbTab & Line
-    Next l
+        List = VBA.Split(Lists(i), DictDelimeter)
+        WhatReplace = List(0) & vbTab & List(1)
+        WhatReplaces = WhatReplaces & vbTab & WhatReplace
+    Next i
 
     With Mp.Pages("page2").lbxHistory
         .Text = Empty
-        .Text = ListsReduced
+        .Text = WhatReplaces
     End With
     
 Exit Sub
@@ -823,26 +796,6 @@ Err:
 If Err.Number = 9 Then Exit Function
 End Function
 
-Private Sub SetRightClickMenu()
-    Dim myMenu As Object
-    Set myMenu = application.CommandBars.Add(Position:=msoBarPopup, Temporary:=True)
-    With myMenu
-        With .Controls.Add
-            .Caption = "置換実行"
-            .OnAction = "DoReplace"
-            .faceId = 125
-        End With
-        With .Controls.Add
-            .Caption = "置換窓にコピー"
-            .OnAction = "CopyToReplaceBox"
-            .faceId = 607
-        End With
-    End With
-End Sub
-'Private Sub lbxHistory_MouseDown(ByVal Button As Integer, ByVal Shift As Integer, ByVal X As Single, ByVal Y As Single)
-'    If Button = 2 Then myMenu.ShowPopup
-'End Sub
-
 Private Sub lbxHistory_DblClick(ByVal Cancel As MSForms.ReturnBoolean)
     Dim f As Boolean: f = False
     Dim c As Long, i As Long
@@ -863,5 +816,3 @@ Private Sub lbxHistory_DblClick(ByVal Cancel As MSForms.ReturnBoolean)
     SelItems = Left$(SelItems, Len(SelItems) - 1)
     txtReplaceWords = txtReplaceWords.Text & SelItems & vbCr
 End Sub
-
-
