@@ -663,6 +663,10 @@ End Sub
 
 Private Sub 置換履歴をテキストボックスに表示する()
  
+    Dim Lists As Variant
+    Lists = LoadHistory
+    Lists = VBA.Split(Lists, vbCr)
+ 
     On Error GoTo Err
 Return1:
 '   配列要素を決定するために履歴の項数をしらべる
@@ -671,10 +675,6 @@ Return1:
         Case Is > 1: HasMultipleItems = True
         Case Is <= 1: HasMultipleItems = False
     End Select
-    
-    Dim Lists As Variant
-    Lists = LoadHistory
-    Lists = VBA.Split(Lists, vbCr)
 
 '   最大要素数-1するのは、空要素を削除するため
     Select Case HasMultipleItems
